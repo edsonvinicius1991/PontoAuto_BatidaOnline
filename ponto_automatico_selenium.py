@@ -102,13 +102,14 @@ class NativeTrayManager:
     NIF_TIP = 0x00000004
 
     WM_APP = 0x8000
-    WM_COMMAND = 0x0111
+    WM_NULL = 0x0000
     WM_LBUTTONUP = 0x0202
     WM_LBUTTONDBLCLK = 0x0203
     WM_RBUTTONUP = 0x0205
     TPM_LEFTALIGN = 0x0000
     TPM_BOTTOMALIGN = 0x0020
     TPM_RIGHTBUTTON = 0x0002
+    TPM_RETURNCMD = 0x0100
     MF_STRING = 0x0000
 
     GWLP_WNDPROC = -4
@@ -133,6 +134,18 @@ class NativeTrayManager:
 
         self._user32 = ctypes.windll.user32 if self.available else None
         self._shell32 = ctypes.windll.shell32 if self.available else None
+
+        if self.available:
+            is_64 = ctypes.sizeof(ctypes.c_void_p) == 8
+            lresult_t = ctypes.c_longlong if is_64 else ctypes.c_long
+            self._user32.CallWindowProcW.argtypes = [
+                ctypes.c_void_p,
+                wintypes.HWND,
+                wintypes.UINT,
+                wintypes.WPARAM,
+                wintypes.LPARAM,
+            ]
+            self._user32.CallWindowProcW.restype = lresult_t
 
     def start(self) -> bool:
         if not self.available:
@@ -208,15 +221,21 @@ class NativeTrayManager:
         pt = wintypes.POINT()
         self._user32.GetCursorPos(ctypes.byref(pt))
         self._user32.SetForegroundWindow(self._hwnd)
-        self._user32.TrackPopupMenu(
+        cmd = self._user32.TrackPopupMenu(
             self._menu,
-            self.TPM_LEFTALIGN | self.TPM_BOTTOMALIGN | self.TPM_RIGHTBUTTON,
+            self.TPM_LEFTALIGN | self.TPM_BOTTOMALIGN | self.TPM_RIGHTBUTTON | self.TPM_RETURNCMD,
             pt.x,
             pt.y,
             0,
             self._hwnd,
             None,
         )
+        self._user32.PostMessageW(self._hwnd, self.WM_NULL, 0, 0)
+
+        if cmd == self.CMD_SHOW:
+            self.root.after(0, self.on_restore)
+        elif cmd == self.CMD_EXIT:
+            self.root.after(0, self.on_exit)
 
     def _install_wndproc(self, hwnd: int) -> bool:
         is_64 = ctypes.sizeof(ctypes.c_void_p) == 8
@@ -258,24 +277,41 @@ class NativeTrayManager:
             self._wndproc_ref = None
 
     def _wndproc(self, hwnd, msg, wparam, lparam):
-        if msg == self._tray_msg and int(wparam) == self.TRAY_UID:
-            if int(lparam) in (self.WM_LBUTTONUP, self.WM_LBUTTONDBLCLK):
-                self.root.after(0, self.on_restore)
-                return 0
-            if int(lparam) == self.WM_RBUTTONUP:
-                self._show_context_menu()
-                return 0
+        try:
+            if msg == self._tray_msg and int(wparam) == self.TRAY_UID:
+                if int(lparam) in (self.WM_LBUTTONUP, self.WM_LBUTTONDBLCLK):
+                    self.root.after(0, self.on_restore)
+                    return 0
+                if int(lparam) == self.WM_RBUTTONUP:
+                    self._show_context_menu()
+                    return 0
 
-        if msg == self.WM_COMMAND:
-            cmd_id = int(wparam) & 0xFFFF
-            if cmd_id == self.CMD_SHOW:
-                self.root.after(0, self.on_restore)
-                return 0
-            if cmd_id == self.CMD_EXIT:
-                self.root.after(0, self.on_exit)
-                return 0
+            return self._call_window_proc(hwnd, msg, wparam, lparam)
+        except Exception as err:
+            self.log(f"⚠️ Erro no callback da bandeja: {err}")
+            return 0
 
-        return self._user32.CallWindowProcW(self._old_wndproc, hwnd, msg, wparam, lparam)
+    def _call_window_proc(self, hwnd, msg, wparam, lparam):
+        if not self._old_wndproc:
+            return 0
+
+        bits = ctypes.sizeof(ctypes.c_void_p) * 8
+        mask = (1 << bits) - 1
+        wparam_norm = int(wparam) & mask
+        lparam_norm = int(lparam) & mask
+
+        if bits == 64 and lparam_norm >= (1 << 63):
+            lparam_norm -= (1 << 64)
+        if bits == 32 and lparam_norm >= (1 << 31):
+            lparam_norm -= (1 << 32)
+
+        return self._user32.CallWindowProcW(
+            ctypes.c_void_p(self._old_wndproc.value),
+            wintypes.HWND(hwnd),
+            wintypes.UINT(msg),
+            wintypes.WPARAM(wparam_norm),
+            wintypes.LPARAM(lparam_norm),
+        )
 
 
 def carregar_config() -> dict[str, str | bool]:
