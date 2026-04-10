@@ -44,6 +44,9 @@ ImageDraw = None
 # --- Configuração -------------------------------------------------------------
 URL = "https://www.ahgora.com.br/novabatidaonline/?defaultDevice=a774091"
 CONFIG_FILE = Path(__file__).with_name("ponto_config.json")
+LOGO_PNG = Path(__file__).with_name("assets") / "logo_ponto_auto.png"
+LOGO_ICO = Path(__file__).with_name("assets") / "logo_ponto_auto.ico"
+APP_ID = "petrobras.pontoauto.desktop"
 
 # Faixa de variação (minutos) em relação ao horário base
 OFFSETS = {
@@ -114,15 +117,19 @@ class NativeTrayManager:
 
     GWLP_WNDPROC = -4
     IDI_APPLICATION = 32512
+    IMAGE_ICON = 1
+    LR_LOADFROMFILE = 0x0010
+    LR_DEFAULTSIZE = 0x0040
     TRAY_UID = 1
     CMD_SHOW = 1001
     CMD_EXIT = 1002
 
-    def __init__(self, root: tk.Tk, on_restore, on_exit, log=print):
+    def __init__(self, root: tk.Tk, on_restore, on_exit, log=print, icon_path: Path | None = None):
         self.root = root
         self.on_restore = on_restore
         self.on_exit = on_exit
         self.log = log
+        self.icon_path = icon_path
         self.available = os.name == "nt"
         self.active = False
         self._hwnd = None
@@ -169,7 +176,7 @@ class NativeTrayManager:
             nid.uID = self.TRAY_UID
             nid.uFlags = self.NIF_MESSAGE | self.NIF_ICON | self.NIF_TIP
             nid.uCallbackMessage = self._tray_msg
-            nid.hIcon = self._user32.LoadIconW(0, self.IDI_APPLICATION)
+            nid.hIcon = self._load_icon_handle()
             nid.szTip = "Ponto Automático"
 
             if not self._shell32.Shell_NotifyIconW(self.NIM_ADD, ctypes.byref(nid)):
@@ -213,6 +220,24 @@ class NativeTrayManager:
         self._user32.AppendMenuW(menu, self.MF_STRING, self.CMD_SHOW, "Reexibir")
         self._user32.AppendMenuW(menu, self.MF_STRING, self.CMD_EXIT, "Fechar")
         return menu
+
+    def _load_icon_handle(self):
+        if self.icon_path and self.icon_path.exists():
+            try:
+                hicon = self._user32.LoadImageW(
+                    0,
+                    str(self.icon_path),
+                    self.IMAGE_ICON,
+                    0,
+                    0,
+                    self.LR_LOADFROMFILE | self.LR_DEFAULTSIZE,
+                )
+                if hicon:
+                    return hicon
+            except Exception:
+                pass
+
+        return self._user32.LoadIconW(0, self.IDI_APPLICATION)
 
     def _show_context_menu(self):
         if not self._menu:
@@ -818,6 +843,12 @@ class PontoApp:
         self.root.resizable(True, True)
         self.root.configure(bg=UI_COLORS["bg"])
 
+        if os.name == "nt":
+            try:
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_ID)
+            except Exception:
+                pass
+
         self.log_queue: Queue[str] = Queue()
         self.status_queue: Queue[str] = Queue()
         self.controller = PontoController(self._append_log, self._set_status)
@@ -836,8 +867,11 @@ class PontoApp:
             on_restore=self._mostrar,
             on_exit=self._encerrar_aplicacao,
             log=self._append_log,
+            icon_path=LOGO_ICO,
         )
+        self._logo_img = None
 
+        self._aplicar_logo_janela()
         self._build_ui()
         self._carregar_credenciais_salvas()
         self._preparar_dependencias_bandeja()
@@ -878,7 +912,7 @@ class PontoApp:
             fg=UI_COLORS["text"],
             insertbackground=UI_COLORS["text"],
             relief="flat",
-            width=16,
+            width= 18,
             font=("Consolas", 10),
         )
         self.entry_matricula.grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=(0, 4))
@@ -936,19 +970,19 @@ class PontoApp:
         frame_buttons = tk.Frame(self.root, bg=UI_COLORS["bg"])
         frame_buttons.pack(fill="x", padx=14, pady=(0, 8))
 
-        self.btn_iniciar = tk.Button(frame_buttons, text="Iniciar", width=12, command=self._iniciar)
+        self.btn_iniciar = tk.Button(frame_buttons, text="Iniciar", width=10, command=self._iniciar)
         self._estilizar_botao(self.btn_iniciar, primary=True)
         self.btn_iniciar.pack(side="left", padx=(0, 8))
 
-        self.btn_pausar = tk.Button(frame_buttons, text="Pausar", width=12, state="disabled", command=self._pausar)
+        self.btn_pausar = tk.Button(frame_buttons, text="Pausar", width=10, state="disabled", command=self._pausar)
         self._estilizar_botao(self.btn_pausar)
         self.btn_pausar.pack(side="left", padx=(0, 8))
 
-        self.btn_esconder = tk.Button(frame_buttons, text="Esconder", width=12, command=self._esconder)
+        self.btn_esconder = tk.Button(frame_buttons, text="Esconder", width=10, command=self._esconder)
         self._estilizar_botao(self.btn_esconder)
         self.btn_esconder.pack(side="left")
 
-        self.btn_sair = tk.Button(frame_buttons, text="Sair", width=12, command=self._sair_com_confirmacao)
+        self.btn_sair = tk.Button(frame_buttons, text="Sair", width=10, command=self._sair_com_confirmacao)
         self._estilizar_botao(self.btn_sair, danger=True)
         self.btn_sair.pack(side="left", padx=(8, 0))
 
@@ -978,6 +1012,20 @@ class PontoApp:
         )
         self.txt_logs.pack(fill="both", expand=True, padx=14, pady=(0, 12))
         self.txt_logs.configure(state="disabled")
+
+    def _aplicar_logo_janela(self) -> None:
+        if LOGO_ICO.exists():
+            try:
+                self.root.iconbitmap(str(LOGO_ICO))
+            except Exception:
+                pass
+
+        if LOGO_PNG.exists():
+            try:
+                self._logo_img = tk.PhotoImage(file=str(LOGO_PNG))
+                self.root.iconphoto(True, self._logo_img)
+            except Exception:
+                self._logo_img = None
 
     def _estilizar_botao(self, botao: tk.Button, primary: bool = False, danger: bool = False) -> None:
         if primary:
