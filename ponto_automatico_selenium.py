@@ -912,7 +912,7 @@ class PontoApp:
             fg=UI_COLORS["text"],
             insertbackground=UI_COLORS["text"],
             relief="flat",
-            width= 18,
+            width= 60,
             font=("Consolas", 10),
         )
         self.entry_matricula.grid(row=1, column=1, sticky="ew", padx=(0, 10), pady=(0, 4))
@@ -933,7 +933,7 @@ class PontoApp:
             fg=UI_COLORS["text"],
             insertbackground=UI_COLORS["text"],
             relief="flat",
-            width=16,
+            width=20,
             font=("Consolas", 10),
         )
         self.entry_senha.grid(row=2, column=1, sticky="ew", padx=(0, 10), pady=(0, 4))
@@ -970,19 +970,19 @@ class PontoApp:
         frame_buttons = tk.Frame(self.root, bg=UI_COLORS["bg"])
         frame_buttons.pack(fill="x", padx=14, pady=(0, 8))
 
-        self.btn_iniciar = tk.Button(frame_buttons, text="Iniciar", width=10, command=self._iniciar)
+        self.btn_iniciar = tk.Button(frame_buttons, text="▶ Iniciar", width=7, command=self._iniciar)
         self._estilizar_botao(self.btn_iniciar, primary=True)
         self.btn_iniciar.pack(side="left", padx=(0, 8))
 
-        self.btn_pausar = tk.Button(frame_buttons, text="Pausar", width=10, state="disabled", command=self._pausar)
+        self.btn_pausar = tk.Button(frame_buttons, text="⏸ Pausar", width=7, state="disabled", command=self._pausar)
         self._estilizar_botao(self.btn_pausar)
         self.btn_pausar.pack(side="left", padx=(0, 8))
 
-        self.btn_esconder = tk.Button(frame_buttons, text="Esconder", width=10, command=self._esconder)
+        self.btn_esconder = tk.Button(frame_buttons, text="🠋 Esconder", width=8, command=self._esconder)
         self._estilizar_botao(self.btn_esconder)
         self.btn_esconder.pack(side="left")
 
-        self.btn_sair = tk.Button(frame_buttons, text="Sair", width=10, command=self._sair_com_confirmacao)
+        self.btn_sair = tk.Button(frame_buttons, text="✖ Sair", width=7, command=self._sair_com_confirmacao)
         self._estilizar_botao(self.btn_sair, danger=True)
         self.btn_sair.pack(side="left", padx=(8, 0))
 
@@ -1114,7 +1114,7 @@ class PontoApp:
             self.btn_pausar.configure(state="normal")
         else:
             self.btn_iniciar.configure(state="normal")
-            self.btn_pausar.configure(state="disabled", text="Pausar")
+            self.btn_pausar.configure(state="disabled", text="⏸ Pausar")
             if self.lbl_contagem.cget("text") in {"Status: 🛑 Execução interrompida", "Status: ⏹️ Encerrando..."}:
                 self.lbl_contagem.configure(text="Status: ⚪ Pronto")
         self.root.after(500, self._sync_buttons)
@@ -1140,7 +1140,7 @@ class PontoApp:
 
     def _pausar(self) -> None:
         pausado = self.controller.pausar_ou_retornar()
-        self.btn_pausar.configure(text="Retomar" if pausado else "Pausar")
+        self.btn_pausar.configure(text="▶ Retomar" if pausado else "⏸ Pausar")
 
     def _create_tray_icon(self):
         if pystray is None or Image is None or ImageDraw is None:
